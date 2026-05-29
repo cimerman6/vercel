@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GameMaster vs. Presýpacie Hodiny - Menu</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: center;
+      padding-top: 10px;
+      background: #ececec;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #111;
+    }
+
+    h1 {
+      font-size: 48px;
+      margin-bottom: 40px;
+      text-align: center;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    button {
+      padding: 20px 40px;
+      font-size: 24px;
+      font-weight: bold;
+      background: #ffffff;
+      border: 3px solid #2b2b2b;
+      border-radius: 18px;
+      cursor: pointer;
+      box-shadow: 0 4px 0 rgba(0,0,0,0.18);
+      transition: transform 0.1s;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+    }
+
+    button:active {
+      transform: translateY(2px);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="playerCanvas" width="500" height="230" style="display: block; margin-bottom: 0px;"></canvas>
+  <h1 style="margin-top: 0;">GameMaster vs. Presýpacie Hodiny</h1>
+  <div class="buttons" style="margin-top: 20px;">
+    <button onclick="window.location.href='camporee-hra.html'">Normálna hra</button>
+    <button onclick="window.location.href='endless-mode.html'">Nekonečná hra</button>
+    <button onclick="window.location.href='pravidla.html'">Pokyny</button>
+  </div>
+  <script>
+    const canvas = document.getElementById('playerCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const player = {
+      onGround: true,
+      runAnim: 0
+    };
+
+    function drawPixelRect(x, y, w, h, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+    }
+
+    function drawPlayerSprite(px, py, alpha = 1) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      const bob = player.onGround ? Math.sin(player.runAnim) * 1.5 : 0;
+      const legSwing = player.onGround ? Math.sin(player.runAnim) * 4 : -2;
+      const armSwing = player.onGround ? Math.sin(player.runAnim) * 3 : -3;
+      const x = Math.round(px);
+      const y = Math.round(py + bob);
+
+      drawPixelRect(x + 10, y + 26, 28, 26, '#1a1a1a');
+      drawPixelRect(x + 6, y + 18, 30, 14, '#2a2a2a');
+      drawPixelRect(x + 0, y + 20, 18, 24, '#444');
+      drawPixelRect(x + 4, y + 24, 10, 24, '#2a2a2a');
+      drawPixelRect(x + 38, y + 28 + armSwing, 12, 18, '#2a2a2a');
+      drawPixelRect(x + 12, y + 50, 12, 18, '#000');
+      drawPixelRect(x + 26, y + 50 + legSwing, 12, 18, '#000');
+      drawPixelRect(x + 16, y + 54, 8, 8, '#222');
+      drawPixelRect(x + 30, y + 54 + legSwing, 8, 8, '#222');
+
+      drawPixelRect(x + 14, y + 0, 30, 36, '#4a4a4a');
+      drawPixelRect(x + 10, y + 6, 34, 28, '#3b3b3b');
+      drawPixelRect(x + 18, y + 8, 26, 24, '#000');
+      drawPixelRect(x + 22, y + 16, 7, 7, '#fff');
+      drawPixelRect(x + 34, y + 16, 7, 7, '#fff');
+      drawPixelRect(x + 20, y + 30, 14, 4, '#111');
+
+      drawPixelRect(x + 21, y + 37, 10, 9, '#fff');
+      drawPixelRect(x + 24, y + 40, 4, 4, '#999');
+      drawPixelRect(x + 16, y + 37, 5, 5, '#111');
+      drawPixelRect(x + 31, y + 37, 5, 5, '#111');
+
+      drawPixelRect(x - 2, y + 20, 10, 5, '#555');
+      drawPixelRect(x - 7, y + 23, 10, 5, '#444');
+      drawPixelRect(x - 12, y + 26, 9, 5, '#333');
+
+      ctx.restore();
+    }
+
+    // Draw the player sprite
+    drawPlayerSprite(200, 50);
+  </script>
+</body>
+</html>
