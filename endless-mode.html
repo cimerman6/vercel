@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GameMaster vs. Presýpacie Hodiny - Nekonečná hra</title>
+  <style>
+    :root {
+      --sky: #d9d9d9;
+      --mountain: #b8b8b8;
+      --ground: #2f3136;
+      --road: #cfcfcf;
+      --text: #111111;
+      --white: #ffffff;
+      --black: #000000;
+      --coin1: #ffe95a;
+      --coin2: #f8c400;
+      --coin3: #9a6d00;
+      --hood1: #4a4a4a;
+      --hood2: #2a2a2a;
+      --hood3: #111111;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #ececec;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+    }
+
+    .wrap {
+      width: min(1120px, 100vw);
+      padding: 18px;
+    }
+
+    .hud {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .pill {
+      background: #ffffff;
+      border: 3px solid #2b2b2b;
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-weight: 700;
+      box-shadow: 0 4px 0 rgba(0,0,0,0.18);
+    }
+
+    canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+      border: 4px solid #2b2b2b;
+      border-radius: 18px;
+      background: var(--sky);
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    .hint {
+      text-align: center;
+      margin-top: 10px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    #gameOverButtons {
+      position: fixed;
+      bottom: 35px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      z-index: 1000;
+    }
+
+    #gameOverButtons button {
+      padding: 20px 40px;
+      font-size: 24px;
+      font-weight: bold;
+      background: #ffffff;
+      border: 3px solid #2b2b2b;
+      border-radius: 18px;
+      cursor: pointer;
+      box-shadow: 0 4px 0 rgba(0,0,0,0.18);
+      transition: transform 0.1s;
+      margin: 0 10px;
+    }
+
+    #gameOverButtons button:hover {
+      transform: translateY(-2px);
+    }
+
+    #gameOverButtons button:active {
+      transform: translateY(2px);
+    }
+
+    #menuButton button {
+      padding: 20px 40px;
+      font-size: 24px;
+      font-weight: bold;
+      background: #ffffff;
+      border: 3px solid #2b2b2b;
+      border-radius: 18px;
+      cursor: pointer;
+      box-shadow: 0 4px 0 rgba(0,0,0,0.18);
+      transition: transform 0.1s;
+    }
+
+    #menuButton button:hover {
+      transform: translateY(-2px);
+    }
+
+    #menuButton button:active {
+      transform: translateY(2px);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hud">
+      <div class="pill">Body: <span id="score">0</span></div>
+      <div class="pill">Mince: <span id="coins">0</span></div>
+      <div class="pill">Rekord: <span id="best">0</span></div>
+      <div class="pill">Space / ↑ skok · R reštart</div>
+    </div>
+    <canvas id="game" width="1100" height="420"></canvas>
+    <div class="hint">Získaj čo najviac bodov a buď lepší ako všetci tvoji kamaráti!</div>
+    <div id="menuButton" style="position: absolute; top: 20px; left: 20px; display: block; z-index: 10;">
+      <button id="menuBtnTop">Menu</button>
+    </div>
+    <div id="gameOverButtons">
+      <button id="restartBtn">Reštart</button>
+      <button id="menuBtn">Menu</button>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const scoreEl = document.getElementById('score');
+    const coinsEl = document.getElementById('coins');
+    const bestEl = document.getElementById('best');
+
+    const groundY = 340;
+    const gravity = 0.82;
+    const jumpForce = -15.4;
+    const startSpeed = 5.8;
+    const maxSpeedBoost = 3.0;
+
+    let score = 0;
+    let coins = 0;
+    let best = Number(localStorage.getItem('hoodRunnerBest') || 0);
+    let gameState = 'ready'; // ready, running, lost
+    let tick = 0;
+    let particles = [];
+    let nextSpawnAt = 250;
+
+    bestEl.textContent = best;
+
+    const player = {
+      x: 170,
+      y: groundY - 78,
+      w: 58,
+      h: 78,
+      vy: 0,
+      onGround: true,
+      runAnim: 0,
+      ghostTrail: []
+    };
+
+    const obstacles = [];
+    const coinsOnScreen = [];
+    const mountainsFar = createMountainBand(7, 150, 250, 0.18);
+    const mountainsNear = createMountainBand(9, 90, 180, 0.35);
+
+    function createMountainBand(count, minH, maxH, speed) {
+      const arr = [];
+      let x = -40;
+      for (let i = 0; i < count; i++) {
+        const w = 110 + Math.random() * 160;
+        const h = minH + Math.random() * (maxH - minH);
+        arr.push({ x, w, h, speed });
+        x += w * 0.75;
+      }
+      return arr;
+    }
+
+    function resetGame() {
+      score = 0;
+      coins = 0;
+      gameState = 'ready';
+      tick = 0;
+      nextSpawnAt = 260;
+      obstacles.length = 0;
+      coinsOnScreen.length = 0;
+      particles = [];
+      player.y = groundY - player.h;
+      player.vy = 0;
+      player.onGround = true;
+      player.runAnim = 0;
+      player.ghostTrail = [];
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = Math.floor(score);
+      coinsEl.textContent = coins;
+      bestEl.textContent = best;
+    }
+
+    function currentSpeed() {
+      const boost = Math.min(score / 200 * maxSpeedBoost, maxSpeedBoost);
+      return startSpeed + boost;
+    }
+
+    function jump() {
+      if (gameState === 'lost') return;
+      if (player.onGround) {
+        player.vy = jumpForce;
+        player.onGround = false;
+        if (gameState === 'ready') gameState = 'running';
+      }
+    }
+
+    function spawnPattern() {
+      const r = Math.random();
+      let count = 1;
+      if (r > 0.46) count = 2;
+
+      const size = 42;
+      const closeGap = count === 1 ? 20 : 12;
+      const baseX = canvas.width + 40;
+
+      for (let i = 0; i < count; i++) {
+        obstacles.push({
+          x: baseX + i * (size + closeGap),
+          y: groundY - size,
+          w: size,
+          h: size,
+          rotation: Math.random() * Math.PI,
+          passed: false
+        });
+      }
+
+      const coinCount = 1 + (Math.random() > 0.7 ? 1 : 0);
+      for (let i = 0; i < coinCount; i++) {
+        let coinX, coinY;
+        let attempts = 0;
+        do {
+          coinX = canvas.width + 40 + Math.random() * 200;
+          coinY = groundY - 32 - (Math.random() > 0.45 ? 82 : 0);
+          attempts++;
+        } while (attempts < 10 && obstacles.some(ob => coinX < ob.x + ob.w + 20 && coinX + 32 > ob.x - 20));
+        if (attempts < 10) {
+          coinsOnScreen.push({ x: coinX, y: coinY, w: 32, h: 32 });
+        }
+      }
+
+      const longGap = 70 + Math.random() * 50;
+      const patternExtra = count === 1 ? 0 : 40;
+      nextSpawnAt = tick + longGap + patternExtra;
+    }
+
+    function rectsCollide(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function addCoinBurst(x, y) {
+      for (let i = 0; i < 10; i++) {
+        particles.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 3.5,
+          vy: -1 - Math.random() * 2.5,
+          life: 28 + Math.random() * 14,
+          size: 4 + Math.random() * 4
+        });
+      }
+    }
+
+    function updateMountains(list) {
+      list.forEach(m => {
+        m.x -= m.speed;
+        if (m.x + m.w < -40) {
+          const maxRight = Math.max(...list.map(v => v.x + v.w));
+          m.w = 110 + Math.random() * 160;
+          m.h = (list === mountainsFar ? 150 : 90) + Math.random() * (list === mountainsFar ? 100 : 90);
+          m.x = maxRight - 20;
+        }
+      });
+    }
+
+    function update() {
+      if (gameState === 'running') {
+        tick++;
+        updateMountains(mountainsFar);
+        updateMountains(mountainsNear);
+
+        player.vy += gravity;
+        player.y += player.vy;
+        if (player.y >= groundY - player.h) {
+          player.y = groundY - player.h;
+          player.vy = 0;
+          player.onGround = true;
+        }
+
+        if (gameState === 'running') {
+          player.runAnim += 0.22;
+        } else if (gameState === 'ready') {
+          player.runAnim += 0.08;
+        }
+
+        if (gameState === 'running' && tick >= nextSpawnAt) {
+          spawnPattern();
+        }
+
+        const speed = currentSpeed();
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+          const ob = obstacles[i];
+          ob.x -= speed;
+          ob.rotation += 0.05;
+
+          if (!ob.passed && ob.x + ob.w < player.x) {
+            ob.passed = true;
+            score += 12;
+            if (score > best) {
+              best = Math.floor(score);
+              localStorage.setItem('hoodRunnerBest', best);
+            }
+            updateHud();
+          }
+
+          if (gameState === 'running' && rectsCollide(player, ob)) {
+            gameState = 'lost';
+            if (score > best) {
+              best = Math.floor(score);
+              localStorage.setItem('hoodRunnerBest', best);
+            }
+            updateHud();
+          }
+
+          if (ob.x + ob.w < -60) obstacles.splice(i, 1);
+        }
+
+        for (let i = coinsOnScreen.length - 1; i >= 0; i--) {
+          const coin = coinsOnScreen[i];
+          coin.x -= speed;
+
+          if (gameState === 'running' && rectsCollide(player, coin)) {
+            coins += 1;
+            addCoinBurst(coin.x + coin.w / 2, coin.y + coin.h / 2);
+            coinsOnScreen.splice(i, 1);
+            updateHud();
+            continue;
+          }
+
+          if (coin.x + coin.w < -60) coinsOnScreen.splice(i, 1);
+        }
+
+        if (gameState === 'running') {
+          score += 0.035;
+          if (score > best) {
+            best = Math.floor(score);
+            localStorage.setItem('hoodRunnerBest', best);
+          }
+          updateHud();
+        }
+
+        if (gameState === 'running') {
+          player.ghostTrail.push({ x: player.x + 5, y: player.y + 10, life: 12 });
+        }
+        player.ghostTrail.forEach(t => t.life--);
+        player.ghostTrail = player.ghostTrail.filter(t => t.life > 0);
+
+        particles.forEach(p => {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += 0.12;
+          p.life -= 1;
+        });
+        particles = particles.filter(p => p.life > 0);
+      }
+    }
+
+    function drawMountainBand(list, color) {
+      ctx.fillStyle = color;
+      list.forEach(m => {
+        ctx.beginPath();
+        ctx.moveTo(m.x, groundY);
+        ctx.lineTo(m.x + m.w * 0.5, groundY - m.h);
+        ctx.lineTo(m.x + m.w, groundY);
+        ctx.closePath();
+        ctx.fill();
+      });
+    }
+
+    function drawRoad() {
+      ctx.fillStyle = '#d3d3d3';
+      ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+
+      ctx.fillStyle = '#2f3136';
+      ctx.fillRect(0, groundY - 8, canvas.width, 12);
+
+      ctx.fillStyle = '#666';
+      const dashOffset = (tick * currentSpeed() * 1.5) % 110;
+      for (let i = -120; i < canvas.width + 120; i += 110) {
+        ctx.fillRect(i - dashOffset, groundY + 34, 26, 6);
+        ctx.fillRect(i + 44 - dashOffset, groundY + 46, 18, 6);
+      }
+    }
+
+    function drawPixelRect(x, y, w, h, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+    }
+
+    function drawPlayerSprite(px, py, alpha = 1) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      const bob = player.onGround ? Math.sin(player.runAnim) * 1.5 : 0;
+      const legSwing = player.onGround ? Math.sin(player.runAnim) * 4 : -2;
+      const armSwing = player.onGround ? Math.sin(player.runAnim) * 3 : -3;
+      const x = Math.round(px);
+      const y = Math.round(py + bob);
+
+      drawPixelRect(x + 10, y + 26, 28, 26, '#1a1a1a');
+      drawPixelRect(x + 6, y + 18, 30, 14, '#2a2a2a');
+      drawPixelRect(x + 0, y + 20, 18, 24, '#444');
+      drawPixelRect(x + 4, y + 24, 10, 24, '#2a2a2a');
+      drawPixelRect(x + 38, y + 28 + armSwing, 12, 18, '#2a2a2a');
+      drawPixelRect(x + 12, y + 50, 12, 18, '#000');
+      drawPixelRect(x + 26, y + 50 + legSwing, 12, 18, '#000');
+      drawPixelRect(x + 16, y + 54, 8, 8, '#222');
+      drawPixelRect(x + 30, y + 54 + legSwing, 8, 8, '#222');
+
+      drawPixelRect(x + 14, y + 0, 30, 36, '#4a4a4a');
+      drawPixelRect(x + 10, y + 6, 34, 28, '#3b3b3b');
+      drawPixelRect(x + 18, y + 8, 26, 24, '#000');
+      drawPixelRect(x + 22, y + 16, 7, 7, '#fff');
+      drawPixelRect(x + 34, y + 16, 7, 7, '#fff');
+      drawPixelRect(x + 20, y + 30, 14, 4, '#111');
+
+      drawPixelRect(x + 21, y + 37, 10, 9, '#fff');
+      drawPixelRect(x + 24, y + 40, 4, 4, '#999');
+      drawPixelRect(x + 16, y + 37, 5, 5, '#111');
+      drawPixelRect(x + 31, y + 37, 5, 5, '#111');
+
+      drawPixelRect(x - 2, y + 20, 10, 5, '#555');
+      drawPixelRect(x - 7, y + 23, 10, 5, '#444');
+      drawPixelRect(x - 12, y + 26, 9, 5, '#333');
+
+      ctx.restore();
+    }
+
+    function drawHourglass(ob) {
+      const x = Math.round(ob.x);
+      const y = Math.round(ob.y);
+      const w = Math.round(ob.w);
+      const h = Math.round(ob.h);
+
+      drawPixelRect(x + 10, y, w - 20, 8, '#111');
+      drawPixelRect(x + 8, y + h - 8, w - 16, 8, '#111');
+      drawPixelRect(x, y + 4, 10, h - 8, '#111');
+      drawPixelRect(x + w - 10, y + 4, 10, h - 8, '#111');
+
+      drawPixelRect(x + 13, y + 10, w - 26, h - 20, '#f5f5f5');
+      drawPixelRect(x + 18, y + 14, w - 36, 2, '#999');
+      drawPixelRect(x + 18, y + h - 16, w - 36, 2, '#999');
+
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(x + 16, y + 14);
+      ctx.lineTo(x + w / 2, y + h / 2);
+      ctx.lineTo(x + w - 16, y + 14);
+      ctx.moveTo(x + 16, y + h - 14);
+      ctx.lineTo(x + w / 2, y + h / 2);
+      ctx.lineTo(x + w - 16, y + h - 14);
+      ctx.stroke();
+
+      drawPixelRect(x + w / 2 - 2, y + h / 2 - 4, 4, 8, '#111');
+      drawPixelRect(x + 21, y + 20, w - 42, 7, '#666');
+      drawPixelRect(x + 24, y + h - 24, w - 48, 8, '#666');
+
+    }
+
+    function drawCoin(x, y, scale = 1) {
+      const s = 32 * scale;
+      drawPixelRect(x + 4 * scale, y, s - 8 * scale, 4 * scale, '#111');
+      drawPixelRect(x, y + 4 * scale, s, s - 8 * scale, '#111');
+      drawPixelRect(x + 4 * scale, y + s - 4 * scale, s - 8 * scale, 4 * scale, '#111');
+      drawPixelRect(x + 4 * scale, y + 4 * scale, s - 8 * scale, s - 8 * scale, '#ffe23d');
+      drawPixelRect(x + 8 * scale, y + 8 * scale, s - 16 * scale, s - 16 * scale, '#f5bf00');
+      drawPixelRect(x + 14 * scale, y + 9 * scale, 4 * scale, s - 18 * scale, '#ffec7a');
+      drawPixelRect(x + 10 * scale, y + 11 * scale, 4 * scale, 4 * scale, '#c18a00');
+      drawPixelRect(x + 18 * scale, y + 17 * scale, 4 * scale, 4 * scale, '#c18a00');
+    }
+
+    function drawParticles() {
+      particles.forEach(p => {
+        ctx.globalAlpha = Math.max(0, p.life / 40);
+        drawPixelRect(p.x, p.y, p.size, p.size, '#f5c400');
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function drawReadyCoins() {
+      if (gameState !== 'ready') return;
+      drawCoin(780, 210, 1);
+      drawCoin(900, 210, 1);
+      drawCoin(1020, 210, 1);
+    }
+
+    function drawOverlay() {
+      ctx.textAlign = 'center';
+      if (gameState === 'ready') {
+        ctx.fillStyle = '#111';
+        ctx.font = 'bold 42px Arial';
+        ctx.fillText('GameMaster vs. Presýpacie Hodiny', canvas.width / 2, 92);
+        ctx.font = 'bold 22px Arial';
+        ctx.fillText('Stlač SPACE alebo ↑ a začni bežať', canvas.width / 2, 126);
+      }
+
+      if (gameState === 'lost') {
+        const overlayX = 260;
+        const overlayY = 70;
+        const overlayW = 580;
+        const overlayH = 170;
+        const overlayRadius = 28;
+
+        ctx.fillStyle = 'rgba(255,255,255,0.78)';
+        ctx.beginPath();
+        ctx.moveTo(overlayX + overlayRadius, overlayY);
+        ctx.lineTo(overlayX + overlayW - overlayRadius, overlayY);
+        ctx.quadraticCurveTo(overlayX + overlayW, overlayY, overlayX + overlayW, overlayY + overlayRadius);
+        ctx.lineTo(overlayX + overlayW, overlayY + overlayH - overlayRadius);
+        ctx.quadraticCurveTo(overlayX + overlayW, overlayY + overlayH, overlayX + overlayW - overlayRadius, overlayY + overlayH);
+        ctx.lineTo(overlayX + overlayRadius, overlayY + overlayH);
+        ctx.quadraticCurveTo(overlayX, overlayY + overlayH, overlayX, overlayY + overlayH - overlayRadius);
+        ctx.lineTo(overlayX, overlayY + overlayRadius);
+        ctx.quadraticCurveTo(overlayX, overlayY, overlayX + overlayRadius, overlayY);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = '#111';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        ctx.fillStyle = '#111';
+        ctx.font = 'bold 46px Arial';
+        ctx.fillText('Prehral si!', canvas.width / 2, 130);
+        ctx.font = 'bold 24px Arial';
+        ctx.fillText('Body: ' + Math.floor(score) + '   |   Mince: ' + coins, canvas.width / 2, 175);
+        ctx.fillText('', canvas.width / 2, 212);
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      drawMountainBand(mountainsFar, '#c3c3c3');
+      drawMountainBand(mountainsNear, '#b1b1b1');
+      drawRoad();
+      drawReadyCoins();
+
+      player.ghostTrail.forEach(t => {
+        drawPlayerSprite(t.x, t.y, t.life / 18 * 0.35);
+      });
+
+      obstacles.forEach(drawHourglass);
+      coinsOnScreen.forEach(c => drawCoin(c.x, c.y, 1));
+      drawParticles();
+      drawPlayerSprite(player.x, player.y, 1);
+      drawOverlay();
+
+      const gameOverButtons = document.getElementById('gameOverButtons');
+      if (gameState === 'lost') {
+        gameOverButtons.style.display = 'block';
+      } else {
+        gameOverButtons.style.display = 'none';
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' || e.code === 'ArrowUp') {
+        e.preventDefault();
+        jump();
+      }
+      if (e.key.toLowerCase() === 'r' && gameState === 'lost') {
+        resetGame();
+      }
+    });
+
+    canvas.addEventListener('pointerdown', () => {
+      if (gameState === 'lost') return;
+      jump();
+    });
+
+    document.getElementById('restartBtn').addEventListener('click', resetGame);
+    document.getElementById('menuBtn').addEventListener('click', () => window.location.href = 'menu.html');
+    document.getElementById('menuBtnTop').addEventListener('click', () => window.location.href = 'menu.html');
+
+    resetGame();
+    loop();
+  </script>
+</body>
+</html>
